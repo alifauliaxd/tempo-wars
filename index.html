@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<title>⚔️ Tempo Clan Wars</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  min-height:100vh;
+  font-family:Segoe UI,Arial;
+  color:white;
+  background:
+    linear-gradient(rgba(0,0,0,.75),rgba(0,0,0,.9)),
+    url("https://images.unsplash.com/photo-1519681393784-d120267933ba");
+  background-size:cover;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+.card{
+  width:420px;
+  padding:32px;
+  background:rgba(20,20,20,.65);
+  backdrop-filter:blur(16px);
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.15);
+  text-align:center;
+  box-shadow:0 0 40px rgba(0,0,0,.8);
+}
+
+.score{
+  display:flex;
+  justify-content:space-between;
+  font-size:1.5em;
+  margin:20px 0;
+}
+.red{color:#ff5555;text-shadow:0 0 10px red;}
+.blue{color:#4da6ff;text-shadow:0 0 10px #4da6ff;}
+
+.progress{
+  background:#333;
+  height:10px;
+  border-radius:5px;
+  overflow:hidden;
+}
+.progress-fill{
+  height:100%;
+  background:linear-gradient(90deg,#00ff99,#00ffaa);
+  width:0%;
+}
+
+button{
+  width:100%;
+  padding:14px;
+  margin-top:10px;
+  border:none;
+  border-radius:10px;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+#connectBtn{background:white;color:black;}
+.btn-red{background:#ff3333;color:white;}
+.btn-blue{background:#0066ff;color:white;}
+
+.hidden{display:none;}
+
+.badge{
+  border:2px dashed #aaa;
+  padding:16px;
+  margin-top:16px;
+  border-radius:14px;
+}
+
+#audioBtn{
+  position:fixed;
+  bottom:20px;
+  right:20px;
+  background:rgba(0,0,0,.7);
+  border:none;
+  border-radius:50%;
+  width:48px;
+  height:48px;
+  font-size:22px;
+  cursor:pointer;
+  color:white;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h1>⚔️ Tempo Clan Wars</h1>
+  <small id="seasonText">Loading season...</small>
+
+  <div class="score">
+    <div class="red">🔴 <span id="red">0</span></div>
+    <div class="blue">🔵 <span id="blue">0</span></div>
+  </div>
+
+  <div class="progress">
+    <div id="bar" class="progress-fill"></div>
+  </div>
+
+  <p id="slot">Loading...</p>
+  <p id="countdown"></p>
+
+  <button id="connectBtn">CONNECT WALLET</button>
+
+  <div id="join" class="hidden">
+    <button class="btn-red" onclick="join(1)">JOIN RED 🔴</button>
+    <button class="btn-blue" onclick="join(2)">JOIN BLUE 🔵</button>
+  </div>
+
+  <div id="badge" class="badge hidden">
+    <h2 id="faction"></h2>
+    <h1 id="cid"></h1>
+    <small>Genesis Citizen</small>
+  </div>
+
+  <p id="status"></p>
+</div>
+
+<audio id="bgMusic" src="music.mp3" loop></audio>
+<audio id="joinSound" src="sound.wav"></audio>
+<button id="audioBtn">🔇</button>
+
+<script>
+/* ================= CONFIG ================= */
+
+const CONTRACT_ADDRESS =
+ "0x8a9Fc7E1cdcF13f66b97658DA49232449F762994";
+
+const TEMPO_CHAIN = {
+  chainId: "0xa5bd", // 42429
+  chainName: "Tempo Testnet (Andantino)",
+  nativeCurrency: {
+    name: "USD",
+    symbol: "USD",
+    decimals: 18
+  },
+  rpcUrls: ["https://rpc.testnet.tempo.xyz"],
+  blockExplorerUrls: ["https://explore.tempo.xyz"]
+};
+
+const ABI = [
+  "function joinFaction(uint8)",
+  "function getMyStatus(address) view returns(uint256,uint8,uint256)",
+  "function getScore() view returns(uint256,uint256)",
+  "function getSeasonInfo() view returns(uint256,uint256,uint256,uint256)"
+];
+
+let provider, signer, contract, user;
+let seasonEnd = 0;
+
+const bgMusic = document.getElementById("bgMusic");
+const joinSound = document.getElementById("joinSound");
+const audioBtn = document.getElementById("audioBtn");
+
+/* ================= AUDIO ================= */
+
+let musicOn = false;
+audioBtn.onclick = () => {
+  if (!musicOn) {
+    bgMusic.volume = 0.25;
+    bgMusic.play();
+    audioBtn.innerText = "🔊";
+    musicOn = true;
+  } else {
+    bgMusic.pause();
+    audioBtn.innerText = "🔇";
+    musicOn = false;
+  }
+};
+
+/* ================= WALLET ================= */
+
+document.getElementById("connectBtn").onclick = connect;
+
+async function connect(){
+  if (!window.ethereum) {
+    alert("Install MetaMask dulu");
+    return;
+  }
+
+  await ethereum.request({ method: "eth_requestAccounts" });
+
+  try {
+    await ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: TEMPO_CHAIN.chainId }]
+    });
+  } catch {
+    await ethereum.request({
+      method: "wallet_addEthereumChain",
+      params: [TEMPO_CHAIN]
+    });
+  }
+
+  provider = new ethers.providers.Web3Provider(window.ethereum);
+  signer = provider.getSigner();
+  user = await signer.getAddress();
+  contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+  document.getElementById("connectBtn").classList.add("hidden");
+
+  bgMusic.volume = 0.25;
+  bgMusic.play();
+  musicOn = true;
+  audioBtn.innerText = "🔊";
+
+  await load();
+  setInterval(load, 1000);
+}
+
+/* ================= LOAD DATA ================= */
+
+async function load(){
+  const [red, blue] = await contract.getScore();
+  document.getElementById("red").innerText = red;
+  document.getElementById("blue").innerText = blue;
+
+  const info = await contract.getSeasonInfo();
+  const seasonId = info[0];
+  const joined = info[1];
+  const max = info[2];
+  seasonEnd = info[3];
+
+  document.getElementById("seasonText").innerText =
+    `Season ${seasonId} – Genesis`;
+
+  document.getElementById("slot").innerText =
+    `Citizens ${joined} / ${max}`;
+
+  document.getElementById("bar").style.width =
+    (joined / max * 100) + "%";
+
+  countdown();
+  status();
+}
+
+function countdown(){
+  const now = Math.floor(Date.now() / 1000);
+  const d = seasonEnd - now;
+
+  document.getElementById("countdown").innerText =
+    d <= 0 ? "Season Ended"
+    : `Ends in ${Math.floor(d/86400)}d ${Math.floor(d%86400/3600)}h ${Math.floor(d%3600/60)}m`;
+}
+
+async function status(){
+  const s = await contract.getMyStatus(user);
+
+  if (s[0] > 0) {
+    document.getElementById("join").classList.add("hidden");
+    document.getElementById("badge").classList.remove("hidden");
+    document.getElementById("cid").innerText = "#" + s[0];
+    document.getElementById("faction").innerText =
+      s[1] == 1 ? "RED 🔴" : "BLUE 🔵";
+  } else {
+    document.getElementById("join").classList.remove("hidden");
+  }
+}
+
+/* ================= JOIN ================= */
+
+async function join(f){
+  joinSound.play();
+  document.getElementById("status").innerText = "Joining...";
+  const tx = await contract.joinFaction(f);
+  await tx.wait();
+  document.getElementById("status").innerText = "Welcome to the war ⚔️";
+  load();
+}
+</script>
+
+</body>
+</html>
