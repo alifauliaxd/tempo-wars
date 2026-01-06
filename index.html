@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>⚔️ Tempo Clan Wars</title>
+<link rel="icon" href="data:,">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
 
@@ -20,9 +21,8 @@ body{
   justify-content:center;
   align-items:center;
 }
-
 .card{
-  width:420px;
+  width:440px;
   padding:32px;
   background:rgba(20,20,20,.65);
   backdrop-filter:blur(16px);
@@ -31,7 +31,6 @@ body{
   text-align:center;
   box-shadow:0 0 40px rgba(0,0,0,.8);
 }
-
 .score{
   display:flex;
   justify-content:space-between;
@@ -40,7 +39,6 @@ body{
 }
 .red{color:#ff5555;text-shadow:0 0 10px red;}
 .blue{color:#4da6ff;text-shadow:0 0 10px #4da6ff;}
-
 .progress{
   background:#333;
   height:10px;
@@ -52,7 +50,6 @@ body{
   background:linear-gradient(90deg,#00ff99,#00ffaa);
   width:0%;
 }
-
 button{
   width:100%;
   padding:14px;
@@ -62,20 +59,29 @@ button{
   font-weight:bold;
   cursor:pointer;
 }
-
 #connectBtn{background:white;color:black;}
 .btn-red{background:#ff3333;color:white;}
 .btn-blue{background:#0066ff;color:white;}
-
 .hidden{display:none;}
-
 .badge{
   border:2px dashed #aaa;
   padding:16px;
   margin-top:16px;
   border-radius:14px;
 }
-
+.security-box{
+  margin-top:15px;
+  font-size:0.85em;
+  color:#aaa;
+  border-top:1px solid #333;
+  padding-top:10px;
+  text-align:left;
+}
+.links{
+  margin-top:10px;
+  font-size:0.85em;
+}
+.links a{color:#6cf;text-decoration:none;}
 #audioBtn{
   position:fixed;
   bottom:20px;
@@ -98,6 +104,10 @@ button{
   <h1>⚔️ Tempo Clan Wars</h1>
   <small id="seasonText">Loading season...</small>
 
+  <div style="margin-top:8px;font-size:.9em;color:#7f7;">
+    Non-Custodial • No Approvals • Open-Source
+  </div>
+
   <div class="score">
     <div class="red">🔴 <span id="red">0</span></div>
     <div class="blue">🔵 <span id="blue">0</span></div>
@@ -110,9 +120,17 @@ button{
   <p id="slot">Loading...</p>
   <p id="countdown"></p>
 
+  <!-- READ-ONLY INFO -->
+  <small style="color:#aaa">
+    You can view scores without connecting wallet.
+  </small>
+
   <button id="connectBtn">CONNECT WALLET</button>
 
   <div id="join" class="hidden">
+    <small style="color:#aaa">
+      Only 1 transaction required. Gas shown in MetaMask.
+    </small>
     <button class="btn-red" onclick="join(1)">JOIN RED 🔴</button>
     <button class="btn-blue" onclick="join(2)">JOIN BLUE 🔵</button>
   </div>
@@ -121,6 +139,24 @@ button{
     <h2 id="faction"></h2>
     <h1 id="cid"></h1>
     <small>Genesis Citizen</small>
+  </div>
+
+  <div class="security-box">
+    🔒 <b>Security Notice</b><br>
+    • We never ask for private keys<br>
+    • No token approvals required<br>
+    • One transaction only<br>
+    • You can reject any transaction in MetaMask
+  </div>
+
+  <div class="links">
+    <a href="https://explore.tempo.xyz/address/0x8a9Fc7E1cdcF13f66b97658DA49232449F762994" target="_blank">
+      View Contract
+    </a>
+    •
+    <a href="https://github.com/alifauliaxd/tempo-wars" target="_blank">
+      View Source
+    </a>
   </div>
 
   <p id="status"></p>
@@ -139,11 +175,7 @@ const CONTRACT_ADDRESS =
 const TEMPO_CHAIN = {
   chainId: "0xa5bd", // 42429
   chainName: "Tempo Testnet (Andantino)",
-  nativeCurrency: {
-    name: "USD",
-    symbol: "USD",
-    decimals: 18
-  },
+  nativeCurrency: { name:"USD", symbol:"USD", decimals:18 },
   rpcUrls: ["https://rpc.testnet.tempo.xyz"],
   blockExplorerUrls: ["https://explore.tempo.xyz"]
 };
@@ -155,16 +187,36 @@ const ABI = [
   "function getSeasonInfo() view returns(uint256,uint256,uint256,uint256)"
 ];
 
+/* ================= PROVIDERS ================= */
+
+// READ-ONLY (no wallet)
+const READ_PROVIDER =
+  new ethers.providers.JsonRpcProvider(
+    "https://rpc.testnet.tempo.xyz"
+  );
+
+const readContract =
+  new ethers.Contract(
+    CONTRACT_ADDRESS,
+    ABI,
+    READ_PROVIDER
+  );
+
+// SIGNER (wallet)
 let provider, signer, contract, user;
+
+/* ================= STATE ================= */
+
 let seasonEnd = 0;
+let countdownInterval;
 
 const bgMusic = document.getElementById("bgMusic");
 const joinSound = document.getElementById("joinSound");
 const audioBtn = document.getElementById("audioBtn");
+let musicOn = false;
 
 /* ================= AUDIO ================= */
 
-let musicOn = false;
 audioBtn.onclick = () => {
   if (!musicOn) {
     bgMusic.volume = 0.25;
@@ -178,32 +230,44 @@ audioBtn.onclick = () => {
   }
 };
 
-/* ================= WALLET ================= */
+/* ================= READ-ONLY LOAD (AUTO) ================= */
+
+load();
+setInterval(load,15000);
+
+/* ================= CONNECT WALLET ================= */
 
 document.getElementById("connectBtn").onclick = connect;
 
 async function connect(){
   if (!window.ethereum) {
-    alert("Install MetaMask dulu");
+    alert("Please install MetaMask");
     return;
   }
 
-  await ethereum.request({ method: "eth_requestAccounts" });
+  await ethereum.request({ method:"eth_requestAccounts" });
 
-  try {
+  try{
     await ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: TEMPO_CHAIN.chainId }]
+      method:"wallet_switchEthereumChain",
+      params:[{ chainId:TEMPO_CHAIN.chainId }]
     });
-  } catch {
+  }catch{
     await ethereum.request({
-      method: "wallet_addEthereumChain",
-      params: [TEMPO_CHAIN]
+      method:"wallet_addEthereumChain",
+      params:[TEMPO_CHAIN]
     });
   }
 
   provider = new ethers.providers.Web3Provider(window.ethereum);
   signer = provider.getSigner();
+
+  const net = await provider.getNetwork();
+  if (net.chainId !== 42429) {
+    alert("Wrong network. Use Tempo Testnet.");
+    return;
+  }
+
   user = await signer.getAddress();
   contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
 
@@ -211,21 +275,20 @@ async function connect(){
 
   bgMusic.volume = 0.25;
   bgMusic.play();
-  musicOn = true;
   audioBtn.innerText = "🔊";
+  musicOn = true;
 
-  await load();
-  setInterval(load, 1000);
+  load(); // upgrade to signed mode
 }
 
 /* ================= LOAD DATA ================= */
 
 async function load(){
-  const [red, blue] = await contract.getScore();
+  const [red, blue] = await readContract.getScore();
   document.getElementById("red").innerText = red;
   document.getElementById("blue").innerText = blue;
 
-  const info = await contract.getSeasonInfo();
+  const info = await readContract.getSeasonInfo();
   const seasonId = info[0];
   const joined = info[1];
   const max = info[2];
@@ -240,20 +303,29 @@ async function load(){
   document.getElementById("bar").style.width =
     (joined / max * 100) + "%";
 
-  countdown();
-  status();
+  startCountdown();
+
+  if (user) checkStatus();
 }
 
-function countdown(){
-  const now = Math.floor(Date.now() / 1000);
-  const d = seasonEnd - now;
+/* ================= COUNTDOWN ================= */
 
-  document.getElementById("countdown").innerText =
-    d <= 0 ? "Season Ended"
-    : `Ends in ${Math.floor(d/86400)}d ${Math.floor(d%86400/3600)}h ${Math.floor(d%3600/60)}m`;
+function startCountdown(){
+  clearInterval(countdownInterval);
+  countdownInterval = setInterval(()=>{
+    const now = Math.floor(Date.now()/1000);
+    const diff = seasonEnd - now;
+
+    document.getElementById("countdown").innerText =
+      diff <= 0
+        ? "Season Ended"
+        : `Ends in ${Math.floor(diff/86400)}d ${Math.floor(diff%86400/3600)}h ${Math.floor(diff%3600/60)}m`;
+  },1000);
 }
 
-async function status(){
+/* ================= STATUS ================= */
+
+async function checkStatus(){
   const s = await contract.getMyStatus(user);
 
   if (s[0] > 0) {
